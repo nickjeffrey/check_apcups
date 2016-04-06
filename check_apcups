@@ -1,0 +1,814 @@
+#!/usr/bin/perl
+
+
+# CHANGE LOG
+# ----------
+# 2012/11/13	njeffrey	Script created to monitor ambient temperature
+# 2013/08/14	njeffrey	Add capability to monitor UPS runtime, battery status
+# 2016/02/16	njeffrey	Add capability to monitor dry contacts (for water sensor)
+# 2016/02/16	njeffrey	Confirm $snmpwalk exists
+
+
+# nagios shell script to query APC 9612 Network Management Card for temperature and humidity readings, as well as dry contacts
+
+
+# NOTES
+# -----
+#
+#
+#  This script should return one (and only one) line of ouput.  Multiple
+#  lines of output are silently ignored by nagios.
+#
+#  The line of output will become the body of the alert message sent by nagios
+#
+#
+#  This script queries a remote host via SNMP
+#
+#  You will need a section in the services.cfg
+#  file on the nagios server that looks similar to the following.
+#      # Define a service to check the APC UPS
+#      # Parameters are SNMP community name
+#      define service {
+#              use                             generic-service
+#              hostgroup_name                  all_apcups
+#              service_description             APC UPS
+#              check_command                   check_apcups!public
+#              }
+#
+#
+#  You will also need a command definition similar to the following in commands.cfg on the nagios server
+#      # 'check_apcups' command definition
+#      # parameters are -H hostname -C snmp_community
+#      define command{
+#              command_name    check_apcups
+#              command_line    $USER1$/check_apcups -H $HOSTADDRESS$ -C $ARG1$
+#              }
+#
+#
+
+# Different APC Network management cards may use slightly different OID values.  Here are a few:
+#  APC9612 / APC9619
+#     Temperature #1        .1.3.6.1.4.1.318.1.1.10.2.3.2.1.4.1
+#     Humidity    #1        .1.3.6.1.4.1.318.1.1.10.2.3.2.1.6.1
+#     Dry contact #1 State  .1.3.6.1.4.1.318.1.1.10.2.2.4.1.3.1  (1=enabled, 2=disabled)
+#     Dry contact #2 State  .1.3.6.1.4.1.318.1.1.10.2.2.4.1.3.2  (1=enabled, 2=disabled)
+#     Dry contact #1 Name   .1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.1  
+#     Dry contact #2 Name   .1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.2
+#     Dry contact #1 Status .1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.1  (1=noFault, 2=fault, 3=disabled)
+#     Dry contact #2 Status .1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.2  (1=noFault, 2=fault, 3=disabled)
+#
+# APC9340  
+#    Temperature #1 .1.3.6.1.4.1.318.1.1.10.4.2.3.1.5.0.1 
+#    Temperature #2 .1.3.6.1.4.1.318.1.1.10.4.2.3.1.5.0.2 
+#    Humidity    #1 .1.3.6.1.4.1.318.1.1.10.4.2.3.1.6.0.1 
+#
+# APC9312 series
+#    Temperature #1  .1.3.6.1.4.1.318.1.1.2.1.1.0 
+#    Humidity    #1  .1.3.6.1.4.1.318.1.1.2.1.2.0 
+#    Temperature #2  .1.3.6.1.4.1.318.1.1.2.1.3.0 
+#    Humidity    #2  .1.3.6.1.4.1.318.1.1.2.1.4.0
+# 
+# 
+# Some constant values from the APC PowerNet MIB:
+# upsAdvBatteryReplaceIndicator		.1.3.6.1.4.1.318.1.1.1.2.2.4	1=noBatteryNeedsReplacing 2=batteryNeedsReplacing
+# upsAdvBatteryActualVoltage		.1.3.6.1.4.1.318.1.1.1.2.2.8	The actual battery bus voltage in Volts
+# upsAdvBatteryCapacity			.1.3.6.1.4.1.318.1.1.1.2.2.1	The remaining battery capacity expressed in percent of full capacity
+# upsAdvBatteryTemperature		.1.3.6.1.4.1.318.1.1.1.2.2.2	internal battery temperature in degrees celsius
+# upsAdvInputFrequency			.1.3.6.1.4.1.318.1.1.1.3.2.4	The current input frequency of the UPS system in Hz
+# upsAdvOutputFrequency			.1.3.6.1.4.1.318.1.1.1.4.2.2	The current output frequency of the UPS system in Hz
+# upsAdvOutputLoad			.1.3.6.1.4.1.318.1.1.1.4.2.3 	The current UPS load expressed in percent of rated capacity
+# upsAdvOutputVoltage			.1.3.6.1.4.1.318.1.1.1.4.2.1	The output voltage of the UPS system in VAC 
+# upsAdvBatteryRunTimeRemaining 	.1.3.6.1.4.1.318.1.1.1.2.2.3	Battery runtime remaining in hh:mm:ss.ms format
+# upsBasicBatteryStatus			.1.3.6.1.4.1.318.1.1.1.2.1.1   	1=unknown 2=batteryNormal 3=batteryLow
+# upsAdvBatteryCapacity 		.1.3.6.1.4.1.318.1.1.1.2.2.1 	percentage of remaining battery capacity
+# upsAdvInputLineVoltage		.1.3.6.1.4.1.318.1.1.1.3.2.1	The current utility line voltage in VAC
+# upsBasicOutputStatus			.1.3.6.1.4.1.318.1.1.1.4.1.1	The current state of the UPS
+#									 1=unknown
+#									 2=onLine
+#									 3=onBattery
+#									 4=onSmartBoost
+#									 5=timedSleeping
+#									 6=softwareBypass
+#									 7=off
+#									 8=rebooting
+#									 9=switchedBypass
+#									10=hardwareFailureBypass
+#									11=sleepingUntilPowerReturn
+#									12=onSmartTrim
+# upsBasicStateOutputState		.1.3.6.1.4.1.318.1.1.1.11.1.1	An ASCII string containing the 64 flags representing the current state(s) of the UPS
+# 									The flags are numbered 1 to 64, read from left to right. 
+#									The flags are defined as follows:
+#									Flag  1: Abnormal Condition Present Flag  2: On Battery Flag  3: Low Battery 
+# 									Flag  4: On Line Flag  5: Replace Battery Flag  6: Serial Communication Established 
+# 									Flag  7: AVR Boost Active* Flag  8: AVR Trim Active*
+#									Flag  9: Overload Flag 10: Runtime Calibration Flag 11: Batteries Discharged 
+# 									Flag 12: Manual Bypass Flag 13: Software Bypass 
+#									Flag 14: In Bypass due to Internal Fault Flag 15: In Bypass due to Supply Failure
+# 								 	Flag 16: In Bypass due to Fan Failure*
+# 								 	Flag 17: Sleeping on a Timer Flag 18: Sleeping until Utility Power Returns 
+# 									Flag 19: On Flag 20: Rebooting
+# 									Flag 21: Battery Communication Lost* Flag 22: Graceful Shutdown Initiated 
+# 									Flag 23: Smart Boost or Smart Trim Fault* Flag 24: Bad Output Voltage*
+# 									Flag 25: Battery Charger Failure* Flag 26: High Battery Temperature 
+# 									Flag 27: Self Test In Progress Flag 28: Low Battery / On Battery
+#  									Flag 29: Graceful Shutdown Issued by Upstream Device 
+# 									Flag 30: Graceful Shutdown Issued by Downstream Device 
+#									Flag 31: No Batteries Attached* Flag 32: Synchronized command is in progress
+#									Flag 33 through 64 are not used
+# 									
+#
+# upsAdvStateAbnormalConditions 	1.3.6.1.4.1.318.1.1.1.11.2.1	An ASCII string containing the 32 flags representing the current active UPS faults. 
+#									If the Network Card is unable to determine the values of the flags, 
+#									this variable is set to UNKNOWN. 
+# 									If this variable is not supported by the connected UPS, 
+# 									this variable is set to NOT SUPPORTED.
+#									The flags are numbered from 1 to 32, and read from left to right. 
+#									#The flags are defined as follows:
+#									Flag  1: Power Module Failure Flag  2: Main Intelligence Module Failure 
+#									Flag  3: Redundant Intelligence Module Failure Flag  4: Battery Failure
+# 									Flag  5: Load(kVA) Alarm Threshold Violation Flag  6: Redundancy Lost 
+# 									Flag  7: Redundancy Below Alarm Threshold 
+#									Flag  8: Bypass notin Range; Either Frequency or Voltage
+# 									Flag  9: Bypass Contactor Stuck in Bypass Condition 
+#									Flag 10: Bypass Contactor Stuck in On-Line Condition 
+#									Flag 11: In Bypass due to an Internal Fault Flag 12: In Bypass due to an Overload
+# 									Flag 13: In Maintanence Bypass Flag 14: Input Circuit Braker Tripped Open 
+#									Flag 15: System Level Fan Failure Flag 16: Redundant Intelligent Module in Control
+# 									Flag 17: IIC Inter-Module Communication Failure 
+#									Flag 18: No Working Power Modules 
+#									Flag 19: Load Shutdown From Bypass; Input Frequency 
+#									Flag 20: Runtime Below Alarm Threshold
+# 									Flag 21: Extended Run Frame Fault Flag 22: Output Voltage out of Range 
+#									Flag 23: UPS Not Synchronized Flag 24: No Batteries Installed
+# 									Flag 25: Battery Voltage High Flag 26: UPS Specific Fault Detected 
+#									Flag 27: Site Wiring Fault Flag 28: Backfeed Protection Relay Opened
+# 									Flag 29: <Not Used> Flag 30: <Not Used> Flag 31: <Not Used> Flag 32: <Not Used>
+#
+#
+#
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemConfig.iemConfigContactsTable.iemConfigContactsEntry.iemConfigContactEnable.1 .1.3.6.1.4.1.318.1.1.10.2.2.4.1.3.1
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemConfig.iemConfigContactsTable.iemConfigContactsEntry.iemConfigContactEnable.2 .1.3.6.1.4.1.318.1.1.10.2.2.4.1.3.2
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactNumber.1 .1.3.6.1.4.1.318.1.1.10.2.3.4.1.1.1
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactNumber.2 .1.3.6.1.4.1.318.1.1.10.2.3.4.1.1.2
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactName.1   .1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.1
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactName.2   .1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.2
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactStatus.1 .1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.1
+# .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactStatus.2 .1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.2
+
+
+
+
+
+
+
+
+
+
+use strict;				#enforce good coding practices
+use Getopt::Long;                       #allow --long-switches to be used as parameters.  Install with: perl -MCPAN -e 'install Getopt::Long'
+use Net::SNMP;                          #use external perl module.                        Install with: perl -MCPAN -e 'install Net::SNMP'
+
+
+
+# declare variables
+my ($OK,$WARN,$CRITICAL,$UNKNOWN);
+my ($CHECK_NAME,$cmd,$snmpwalk,$snmpget);
+my ($host,$oid,$key,%apcups,$community,$temp_min_warn,$temp_min_crit,$temp_max_warn,$temp_max_crit);
+my ($opt_h,$opt_w,$opt_c,$opt_C,$opt_H);
+my ($verbose,$output_details);
+$cmd = "";                                              #initialize variable
+$CHECK_NAME                 = "APC UPS";		#name of nagios check
+$verbose                    = "no";                    	#yes/no variable to increase output for debugging
+$temp_min_warn              = 10;			#minimum degrees celsius for warning
+$temp_min_crit              = 5;			#minimum degrees celsius for critical alert
+$temp_max_warn              = 26;			#maximum degrees celsius for warning
+$temp_max_crit              = 28;			#maximum degrees celsius for critical alert
+$community                  = "public";  		#default SNMP community name
+$output_details             = "";			#initialize variable to hold details of script output
+$snmpwalk                   = "/usr/bin/snmpwalk";	#location of binary
+$snmpget                    = "/usr/bin/snmpget";	#location of binary
+#
+# Nagios return codes
+#
+$OK=            0;
+$WARN=          1;
+$CRITICAL=      2;
+$UNKNOWN=       3;
+
+
+
+
+sub get_options {
+   #
+   # this gets the command line parameters provided by the users
+   #
+   print "running get_options subroutine \n" if ($verbose eq "yes");
+   #
+   Getopt::Long::Configure('bundling');
+   GetOptions(
+      "h"   => \$opt_h, "help"        => \$opt_h,
+      "C=s" => \$opt_C, "community=s" => \$opt_C, "comm=s" => \$opt_C,
+      "H=s" => \$opt_H, "hostname=s"  => \$opt_H, "host=s" => \$opt_H,
+   );
+   #
+   #
+   #
+   # If the user supplied -h or --help, generate the help messages
+   #
+   if( defined( $opt_h ) ) {
+      print "Nagios plugin for determining filesystem usage. \n";
+      print "Examples: \n";
+      print "   $0 --host=myfiler --community=public \n";
+      print "   $0     -H myfiler          -C public \n";
+      print "\n\n";
+      exit $UNKNOWN;
+   }
+   #
+   #
+   #
+   # If the user did not supply a --community SNMP community string, use "public"
+   #
+   if( defined( $opt_C ) ) {
+      $community = $opt_C;
+   } else {
+      $community = "public";
+   }
+   #
+   # If the user did not supply a --host=??? , generate a warning
+   #
+   if( defined( $opt_H ) ) {
+      $host = $opt_H;
+   } else {
+      print "$CHECK_NAME UNKNOWN - a remote host to check was not provided. Use this syntax: $0 -H hostname -C snmp_community\n";
+      exit $CRITICAL;                                           #exit script
+   }
+   #
+   print "host=$host community=$community \n" if ($verbose eq "yes");
+}                       #end of subroutine
+
+
+
+
+
+sub sanity_checks {
+   #
+   #
+   print "running sanity_checks subroutine \n" if ($verbose eq "yes");
+   #
+   #
+   if ( ! -f "$snmpwalk" ) {
+      print "ERROR: Cannot find $snmpwalk \n";
+      exit;
+   }
+   if ( ! -x "$snmpwalk" ) {
+      print "ERROR: $snmpwalk is not executable by the current user\n";
+      exit;
+   }
+   if ( ! -f "$snmpget" ) {
+      print "ERROR: Cannot find $snmpget \n";
+      exit;
+   }
+   if ( ! -x "$snmpget" ) {
+      print "ERROR: $snmpget is not executable by the current user\n";
+      exit;
+   }
+}                                                       #end of subroutine
+
+
+
+
+
+sub check_ups_state {
+   #
+   # query the SNMP counters to see if the UPS is currently running on battery power
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_ups_state subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.4.1.1.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsBasicOutputStatus} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid 1/ ) {         					#1=unknown
+         $apcups{upsBasicOutputStatus} = "unknown";            		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 2/ ) {         					#2=onLine
+         $apcups{upsBasicOutputStatus} = "onLine";            		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 3/ ) {         					#3=onBattery
+         $apcups{upsBasicOutputStatus} = "onBattery";          		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 4/ ) {         					#4=onSmartBoost
+         $apcups{upsBasicOutputStatus} = "onSmartBoost";       		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 5/ ) {         					#5=timeSleeping
+         $apcups{upsBasicOutputStatus} = "timedSleeping";      		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 6/ ) {         					#6=softwareBypass
+         $apcups{upsBasicOutputStatus} = "softwareBypass";     		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 7/ ) {         					#7=off
+         $apcups{upsBasicOutputStatus} = "off";          		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 8/ ) {         					#8=rebooting
+         $apcups{upsBasicOutputStatus} = "rebooting";       		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 9/ ) {         					#9=switchedBypass
+         $apcups{upsBasicOutputStatus} = "switchedBypass";     		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 10/ ) {         					#10=hardwareFailureBypass
+         $apcups{upsBasicOutputStatus} = "hardwareFailureBypass";	#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 11/ ) {         					#11=sleepingUntilPowerReturn
+         $apcups{upsBasicOutputStatus} = "sleepingUntilPowerReturn"; 	#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 12/ ) {         					#12=onSmartTrim
+         $apcups{upsBasicOutputStatus} = "onSmartTrim";       		#assign value to hash
+         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+}									#end of subroutine 
+
+
+
+
+
+sub get_temperature {
+   #
+   # query the SNMP counters for temperature sensors
+   # Note that this requires a supported environmental sensor attached to the UPS
+   #
+   print "running get_temperature subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.2.1.4.1";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9]+)/ ) {         #find the ambient temperature from the temperature probe
+         $apcups{ambienttemperature}  = $1;                                         #assign value to hash
+         print "   found ambient temperature $1 degrees celsius \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+sub get_humidity {
+   #
+   # query the SNMP counters for ambient humidity
+   # Note that this requires a supported environmental sensor attached to the UPS
+   # If a supported environmental monitor is attached, the result will be the percentage of relative humidity
+   # If a supported environmental sensor is not attached, the result will be:  -1
+   #
+   print "running get_humidity subroutine \n" if ($verbose eq "yes");
+   #
+   $apcups{ambienthumidity} = "unknown";				#initialize variable
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.2.1.6.1";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9\-]+)/ ) {         #find the ambient temperature from the temperature probe
+         $apcups{ambienthumidity}  = $1;                                #assign value to hash
+         print "   found ambient humidity $apcups{ambienthumidity} % \n" if ($verbose eq "yes");
+      }
+      if ( $apcups{ambienthumidity} eq "-1" ) {
+         $apcups{ambienthumidity} = "unknown"; 				#assign more human readable value
+         print "   Setting ambient humidity to unknown - could not find supported environmental probe \n" if ($verbose eq "yes");
+      }									#end of if block
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+sub check_battery_replacement_status {
+   #
+   # query the SNMP counters for the battery replacement status
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_battery_replacement_status subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.4.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvBatteryReplaceIndicator} = "unknown";			#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid 1/ ) {         					#1=noBatteryNeedsReplacing
+         $apcups{upsAdvBatteryReplaceIndicator} = "no";                 #assign value to hash
+         print "   Battery needs replacing: $apcups{upsAdvBatteryReplaceIndicator}  \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 2/ ) {  				       		#2=BatteryNeedsReplacing
+         $apcups{upsAdvBatteryReplaceIndicator} = "yes";                #assign value to hash
+         print "   Battery needs replacing: $apcups{upsAdvBatteryReplaceIndicator}  \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+
+
+sub check_battery_capacity {
+   #
+   # query the SNMP counters for the battery capacity
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_battery_capacity subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.1.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9]+)/ ) {         					#look for integer value between 0-100
+         $apcups{upsAdvBatteryCapacity} = $1;   	              	#assign value to hash
+         print "   Battery capacity: $apcups{upsAdvBatteryCapacity} %  \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+sub check_ups_load {
+   #
+   # query the SNMP counters for the UPS load
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_ups_load subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.4.2.3.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvOutputLoad} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9]+)/ ) {         					#look for integer value between 0-100
+         $apcups{upsAdvOutputLoad} = $1;   	              	#assign value to hash
+         print "   UPS output load: $apcups{upsAdvOutputLoad} %  \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+
+sub check_battery_runtime_remaining {
+   #
+   # query the SNMP counters for the UPS runtime remaining (in minutes)
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_battery_runtime_remaining subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.3.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvBatteryRunTimeRemaining} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9]+):([0-9]+):([0-9]+):([0-9]+)\.([0-9]+)/ ) { 	#look for dd:hh:mm:ss.ms
+         $apcups{upsAdvBatteryRunTimeRemaining} = (($1 * 24) + ($2 * 60) + $3); 	#convert dd:hh:mm:ss.ms to just minutes
+         print "   UPS battery runtime remaining: $apcups{upsAdvBatteryRunTimeRemaining} minutes \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+
+
+sub check_battery_percent_remaining {
+   #
+   # query the SNMP counters for the battery percent remaining
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_battery_percent_remaining subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.1.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([0-9]+)/ ) {  					#look for integer from 0-100
+         $apcups{upsAdvBatteryCapacity} = $1;				#add value to hash
+         print "   UPS battery percent remaining: $apcups{upsAdvBatteryCapacity} % \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+
+
+sub check_basic_battery_status {
+   #
+   # query the SNMP counters for the battery status
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_basic_battery_status subroutine \n" if ($verbose eq "yes");
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.2.1.1.0";                             
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{upsBasicBatteryStatus} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid 1/ ) {				  		#1=unknown 2=batteryNormal 3=batteryLow
+         $apcups{upsBasicBatteryStatus} = "unknown"; 			#add value to hash
+         print "   UPS battery status: $apcups{upsBasicBatteryStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 2/ ) {				  		#1=unknown 2=batteryNormal 3=batteryLow
+         $apcups{upsBasicBatteryStatus} = "normal"; 			#add value to hash
+         print "   UPS battery status: $apcups{upsBasicBatteryStatus} \n" if ($verbose eq "yes");
+      }
+      if ( /$oid 3/ ) {				  		#1=unknown 2=batteryNormal 3=batteryLow
+         $apcups{upsBasicBatteryStatus} = "batteryLow";			#add value to hash
+         print "   UPS battery status: $apcups{upsBasicBatteryStatus} \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+}                                                                       #end of subroutine
+
+
+
+sub check_dry_contacts {
+   #
+   # query the SNMP counters for the dry contacts on AP9619 web management card
+   # This uses the APC PowerNet MIB
+   #
+   print "running check_dry_contacts subroutine \n" if ($verbose eq "yes");
+   #
+   #
+   # see if dry contact #1 is enabled
+   $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.1";                             
+   $cmd = "$snmpget -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{iemStatusContactStatus1} = "unknown";			#initialize variable
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid 1/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_1} = "noFault"; 		#add value to hash
+         print "   UPS dry contact #1 status: $apcups{iemStatusContactStatus_1} \n" if ($verbose eq "yes");
+      } 								#end of if block
+      if ( /$oid 2/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_1} = "fault"; 			#add value to hash
+         print "   UPS dry contact #1 status: $apcups{iemStatusContactStatus_1} \n" if ($verbose eq "yes");
+      }	 								#end of if block
+      if ( /$oid 3/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_1} = "disabled";		#add value to hash
+         print "   UPS dry contact #1 status: $apcups{iemStatusContactStatus_1} \n" if ($verbose eq "yes");
+      } 								#end of if block
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+   #
+   # If dry contact #1 is enabled, gather more data.
+   if ( ($apcups{iemStatusContactStatus_1} eq "fault") || ($apcups{iemStatusContactStatus_1} eq "noFault") ) {
+      $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.1";                     #iemStatusContactName.1
+      $cmd = "$snmpget -Onq -v 1 -c $community $host $oid";
+      print "   running command: $cmd \n" if ($verbose eq "yes");
+      $apcups{iemStatusContactName_1} = "unknown";			#initialize variable
+      open(IN,"$cmd |");                                                #get the index numbers of the LUNs
+      while (<IN>) {                                                    #read a line from the command output
+         s/\"//g;                                                       #get rid of quotation marks
+         if ( /$oid ([ a-zA-Z0-9_\.\-]+)/ ) {		  		#find the human-readable name of the dry contact
+            $apcups{iemStatusContactName_1} = $1; 			#add value to hash
+            print "   UPS dry contact #1 name: $apcups{iemStatusContactName_1} \n" if ($verbose eq "yes");
+         } 								#end of if block
+      }									#end of while loop
+   } 									#end of if block
+   #
+   #
+   # see if dry contact #2 is enabled
+   $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.2";                             
+   $cmd = "$snmpget -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   $apcups{iemStatusContactStatus_2} = "unknown";			#initialize variable
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid 1/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_2} = "noFault"; 		#add value to hash
+         print "   UPS dry contact #2 status: $apcups{iemStatusContactStatus_2} \n" if ($verbose eq "yes");
+      } 								#end of if block
+      if ( /$oid 2/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_2} = "fault"; 			#add value to hash
+         print "   UPS dry contact #2 status: $apcups{iemStatusContactStatus_2} \n" if ($verbose eq "yes");
+      }	 								#end of if block
+      if ( /$oid 3/ ) {				  			#1=noFault, 2=fault, 3=disabled
+         $apcups{iemStatusContactStatus_2} = "disabled";		#add value to hash
+         print "   UPS dry contact #2 status: $apcups{iemStatusContactStatus_2} \n" if ($verbose eq "yes");
+      } 								#end of if block
+   }                                                                    #end of while loop
+   close IN;                                                            #close filehandle
+   #
+   # If dry contact #2 is enabled, gather more data.
+   if ( ($apcups{iemStatusContactStatus_2} eq "fault") || ($apcups{iemStatusContactStatus_2} eq "noFault") ) {
+      $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.4.1.2.2";                     #iemStatusContactName.2
+      $cmd = "$snmpget -Onq -v 1 -c $community $host $oid";
+      print "   running command: $cmd \n" if ($verbose eq "yes");
+      $apcups{iemStatusContactName_2} = "unknown";			#initialize variable
+      open(IN,"$cmd |");                                                #get the index numbers of the LUNs
+      while (<IN>) {                                                    #read a line from the command output
+         s/\"//g;                                                       #get rid of quotation marks
+         if ( /$oid ([ a-zA-Z0-9_\.\-]+)/ ) {		  		#find the human-readable name of the dry contact
+            $apcups{iemStatusContactName_2} = $1; 			#add value to hash
+            print "   UPS dry contact #2 name: $apcups{iemStatusContactName_2} \n" if ($verbose eq "yes");
+         } 								#end of if block
+      }									#end of while loop
+   } 									#end of if block
+}                                                                       #end of subroutine
+
+
+
+
+
+
+sub print_output {
+   #
+   # print output in the format expected by nagios
+   #
+   print "running print_output subroutine \n" if ($verbose eq "yes");
+   #
+   #
+   $output_details = "UPS state: $apcups{upsBasicOutputStatus}.  ambient temperature is $apcups{ambienttemperature} degrees celsius.  Ambient humidity is $apcups{ambienthumidity}.  Battery status is $apcups{upsBasicBatteryStatus}.  UPS load is $apcups{upsAdvOutputLoad}%.  Runtime remaining is $apcups{upsAdvBatteryRunTimeRemaining} minutes ($apcups{upsAdvBatteryCapacity}%).";
+   #
+   #
+   if ( $apcups{upsBasicOutputStatus} ne "onLine" ) {
+      print "$CHECK_NAME WARN - bad UPS state.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{ambienttemperature} < $temp_min_crit ) {
+      print "$CHECK_NAME CRITICAL - Low temperature alert. Find out why it is so cold. $output_details \n";
+      exit $CRITICAL; 
+   }
+   if ( $apcups{ambienttemperature} < $temp_min_warn ) {
+      print "$CHECK_NAME WARN - Low temperature alert. Find out why it is so cold. $output_details \n";
+      exit $WARN; 
+   }
+   if ( $apcups{ambienttemperature} > $temp_max_crit ) {
+      print "$CHECK_NAME CRITICAL - High temperature alert. The air conditioning may have failed.  $output_details \n";
+      exit $CRITICAL; 
+   }
+   if ( $apcups{ambienttemperature} > $temp_max_warn ) {
+      print "$CHECK_NAME WARN - High temperature alert. The air conditioning may have failed.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{upsAdvBatteryReplaceIndicator} eq "unknown" ) {
+      print "$CHECK_NAME UNKNOWN - Could not determine if UPS battery needs replacing or not.  Please investigate.  $output_details \n";
+      exit $UNKNOWN; 
+   }
+   if ( $apcups{upsAdvBatteryReplaceIndicator} eq "yes" ) {
+      print "$CHECK_NAME WARN - UPS battery needs replacing.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{upsAdvBatteryCapacity} eq "unknown" ) {
+      print "$CHECK_NAME UNKNOWN - Could not determine UPS battery capacity.  Please investigate.  $output_details \n";
+      exit $UNKNOWN; 
+   }
+   if ( $apcups{upsAdvBatteryCapacity} > 100 ) {
+      print "$CHECK_NAME WARN - UPS battery is $apcups{upsAdvBatteryCapacity} %.  This value should never get above 100%.  $output_details \n";
+      exit $WARN; 
+   }
+   if ( $apcups{upsAdvBatteryCapacity} < 50 ) {
+      print "$CHECK_NAME WARN - UPS battery is $apcups{upsAdvBatteryCapacity} %.  This value should never get below 50%.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{upsAdvOutputLoad} > 100 ) {
+      print "$CHECK_NAME UNKNOWN - UPS load is $apcups{upsAdvOutputLoad} %.  This value should never get above 100%.  $output_details \n";
+      exit $UNKNOWN; 
+   }
+   if ( $apcups{upsAdvOutputLoad} > 80 ) {
+      print "$CHECK_NAME CRITICAL - UPS load is $apcups{upsAdvOutputLoad} %.  This UPS is overloaded.  Unplug a few devices.  $output_details \n";
+      exit $CRITICAL; 
+   }
+   if ( $apcups{upsAdvOutputLoad} > 70 ) {
+      print "$CHECK_NAME WARN - UPS load is $apcups{upsAdvOutputLoad} %.  This UPS is overloaded.  Unplug a few devices.  $output_details \n";
+      exit $WARN; 
+   }
+   # 
+   if ( $apcups{upsAdvBatteryRunTimeRemaining} < 10 ) {
+      print "$CHECK_NAME CRITICAL - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details \n";
+      exit $CRITICAL; 
+   }
+   if ( $apcups{upsAdvBatteryRunTimeRemaining} < 15 ) {
+      print "$CHECK_NAME WARN - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{upsAdvBatteryCapacity} < 75 ) {
+      print "$CHECK_NAME CRITICAL - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details \n";
+      exit $CRITICAL; 
+   }
+   if ( $apcups{upsAdvBatteryRunTimeRemaining} < 50 ) {
+      print "$CHECK_NAME WARN - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details \n";
+      exit $WARN; 
+   }
+   #
+   if ( $apcups{upsBasicBatteryStatus} eq "unknown" ) {
+      print "$CHECK_NAME UNKNOWN - Could not determine UPS battery status.  Please investigate.  $output_details  \n";
+      exit $UNKNOWN; 
+   }
+   if ( $apcups{upsBasicBatteryStatus} eq "batteryLow" ) {
+      print "$CHECK_NAME UNKNOWN - Battery status is low.  Please investigate.  $output_details \n";
+      exit $UNKNOWN; 
+   }
+   if ( $apcups{iemStatusContactStatus_1} eq "fault" ) {
+      print "$CHECK_NAME WARN - Dry contact in error state.  $apcups{iemStatusContactName_1}=$apcups{iemStatusContactStatus_1} - please investigate.   $output_details \n";
+      exit $WARN; 
+   }
+   if ( $apcups{iemStatusContactStatus_2} eq "fault" ) {
+      print "$CHECK_NAME WARN - Dry contact in error state.  $apcups{iemStatusContactName_2}=$apcups{iemStatusContactStatus_2} - please investigate.   $output_details \n";
+      exit $WARN; 
+   }
+   #
+   # This message gets sent if everything is ok
+   if ( $apcups{ambienttemperature} >= $temp_min_warn ) {
+      if ( $apcups{ambienttemperature} <= $temp_max_warn ) {
+         print "$CHECK_NAME OK - $output_details \n";
+         exit $OK;
+      }
+   }
+   #
+   # The script should never get this far
+   print "$CHECK_NAME UNKNOWN - Could not determine UPS status.  Please investigate. $output_details \n";
+   exit $UNKNOWN;
+}                                                                       #end of subroutine
+
+
+
+
+
+# --------------------------- main body of program ----------------------
+get_options;
+sanity_checks;
+check_ups_state;
+get_temperature;
+get_humidity;
+check_battery_replacement_status;
+check_battery_capacity;
+check_ups_load;
+check_battery_runtime_remaining;
+check_battery_percent_remaining;
+check_basic_battery_status;
+check_dry_contacts;
+print_output;
