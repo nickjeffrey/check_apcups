@@ -9,6 +9,8 @@
 # 2016/02/16	njeffrey	Confirm $snmpwalk exists
 # 2018/04/08	njeffrey	Bug fixes in print_output subroutine, add --verbose parameter
 # 2018/07/07	njeffrey	Add nagios performance data to output
+# 2011/06/25	njeffrey	Remove dependency on perl module Net::SNMP Typo in print_output subroutine
+# 2011/06/25	njeffrey	Typo in print_output subroutine
 
 
 # nagios shell script to query APC 9612 Network Management Card for temperature and humidity readings, as well as dry contacts
@@ -168,7 +170,6 @@
 
 use strict;				#enforce good coding practices
 use Getopt::Long;                       #allow --long-switches to be used as parameters.  Install with: perl -MCPAN -e 'install Getopt::Long'
-use Net::SNMP;                          #use external perl module.                        Install with: perl -MCPAN -e 'install Net::SNMP'
 
 
 
@@ -785,8 +786,8 @@ sub print_output {
       print "$CHECK_NAME CRITICAL - very low UPS battery capacity remaining.  $output_details | $perf_data \n";
       exit $CRITICAL; 
    }
-   if ( $apcups{upsAdvBatteryCapacity} < 75 ) {
-      print "$CHECK_NAME WARN - low UPS battery runtime remaining.  $output_details | $perf_data  \n";
+   if ( $apcups{upsAdvBatteryCapacity} < 70 ) {
+      print "$CHECK_NAME WARN - low UPS battery capacity remaining.  $output_details | $perf_data  \n";
       exit $WARN; 
    }
    #
