@@ -3,6 +3,11 @@ nagios / zenoss check for APC UPS with SNMP management card with temperature / h
 
 Refer to embedded documentation in script for usage details
 
+# Requirements
+perl, snmpget on nagios server
+
+# Configuration
+
  You will need a section in the services.cfg file on the nagios server that looks similar to the following.
 ```
       # Define a service to check the APC UPS
