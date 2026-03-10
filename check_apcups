@@ -12,6 +12,7 @@
 # 2021/06/25	njeffrey	Remove dependency on perl module Net::SNMP Typo in print_output subroutine
 # 2021/06/25	njeffrey	Typo in print_output subroutine
 # 2026/03/10	njeffrey	Typo in formatting of $perf_data
+# 2026/03/10	njeffrey	Add check_snmp subroutine
 
 
 # nagios shell script to query APC 9612 Network Management Card for temperature and humidity readings, as well as dry contacts
@@ -285,6 +286,34 @@ sub sanity_checks {
 
 
 
+sub check_snmp {
+   #
+   print "running check_snmp subroutine \n" if ($verbose eq "yes");
+   #
+   # Sample output for SNMP query
+   # $ snmpwalk -Onq -v 1 -c public ups02.example.com .1.3.6.1.2.1.1.3.0
+   # .1.3.6.1.2.1.1.3.0 25:23:36:23.55
+   # $ snmpwalk -v 1 -c public ups02.examples.com .1.3.6.1.2.1.1.3.0
+   # DISMAN-EVENT-MIB::sysUpTimeInstance = Timeticks: (224511695) 25 days, 23:38:36.95
+   #
+   $oid = ".1.3.6.1.2.1.1.3.0";                        #OID for sysUpTime, reasonable OID to use for sanity check
+   $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   #
+   $apcups{snmp} = "unknown";				#initialize variable
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid [0-9]+/ ) {         					#1=unknown
+         $apcups{snmp} = "ok";            		#assign value to hash
+         print "   SNMP:$apcups{snmp} \n" if ($verbose eq "yes");
+      } 						#end of if block
+   }							#end of while loop
+   close IN;						#close filehandle
+}                                                       #end of subroutine
+
 
 
 sub check_ups_state {
@@ -294,11 +323,12 @@ sub check_ups_state {
    #
    print "running check_ups_state subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsBasicOutputStatus} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.4.1.1.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsBasicOutputStatus} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -365,6 +395,9 @@ sub get_temperature {
    #
    print "running get_temperature subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{ambienttemperature}  = "unknown";                            #initalize hash element to avoid undef error
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.2.1.4.1";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
@@ -392,6 +425,7 @@ sub get_humidity {
    print "running get_humidity subroutine \n" if ($verbose eq "yes");
    #
    $apcups{ambienthumidity} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
    #
    $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.2.1.6.1";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
@@ -421,11 +455,12 @@ sub check_battery_replacement_status {
    #
    print "running check_battery_replacement_status subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsAdvBatteryReplaceIndicator} = "unknown";			#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.4.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsAdvBatteryReplaceIndicator} = "unknown";			#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -454,11 +489,12 @@ sub check_battery_capacity {
    #
    print "running check_battery_capacity subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.1.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -481,11 +517,12 @@ sub check_ups_load {
    #
    print "running check_ups_load subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsAdvOutputLoad} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.4.2.3.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsAdvOutputLoad} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -509,11 +546,12 @@ sub check_battery_runtime_remaining {
    #
    print "running check_battery_runtime_remaining subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsAdvBatteryRunTimeRemaining} = "unknown";			#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.3.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsAdvBatteryRunTimeRemaining} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -538,11 +576,12 @@ sub check_battery_percent_remaining {
    #
    print "running check_battery_percent_remaining subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.2.2.1.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsAdvBatteryCapacity} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -566,11 +605,12 @@ sub check_basic_battery_status {
    #
    print "running check_basic_battery_status subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{upsBasicBatteryStatus} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    $oid = ".1.3.6.1.4.1.318.1.1.1.2.1.1.0";                             
    $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
-   #
-   $apcups{upsBasicBatteryStatus} = "unknown";				#initialize variable
    #
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
@@ -600,13 +640,15 @@ sub check_dry_contacts {
    #
    print "running check_dry_contacts subroutine \n" if ($verbose eq "yes");
    #
+   $apcups{iemStatusContactStatus1} = "unknown";			#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
    #
    # see if dry contact #1 is enabled
    $oid = ".1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.1";                             
    $cmd = "$snmpget -Onq -v 1 -c $community $host $oid";
    print "   running command: $cmd \n" if ($verbose eq "yes");
    #
-   $apcups{iemStatusContactStatus1} = "unknown";			#initialize variable
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
       s/\"//g;                                                          #get rid of quotation marks
@@ -717,6 +759,10 @@ sub print_output {
    $output_details = "UPS state: $apcups{upsBasicOutputStatus}.  ambient temperature is $apcups{ambienttemperature} degrees celsius.  Ambient humidity is $apcups{ambienthumidity}.  Battery status is $apcups{upsBasicBatteryStatus}.  UPS load is $apcups{upsAdvOutputLoad}%.  Runtime remaining is $apcups{upsAdvBatteryRunTimeRemaining} minutes ($apcups{upsAdvBatteryCapacity}%).";
    #
    #
+   if ( $apcups{snmp} ne "ok" ) {
+      print "$CHECK_NAME UNKNOWN - No SNMP response.  $output_details \n";
+      exit $UNKNOWN; 
+   }
    if ( $apcups{upsBasicOutputStatus} ne "onLine" ) {
       print "$CHECK_NAME WARN - bad UPS state.  $output_details | $perf_data \n";
       exit $WARN; 
@@ -829,6 +875,7 @@ sub print_output {
 # --------------------------- main body of program ----------------------
 get_options;
 sanity_checks;
+check_snmp;
 check_ups_state;
 get_temperature;
 get_humidity;
