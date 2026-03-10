@@ -709,7 +709,7 @@ sub print_output {
    # 10:20	        < 10 or > 20, (outside the range of {10 .. 20})
    # @10:20	        ≥ 10 and ≤ 20, (inside the range of {10 .. 20})
    #
-   $perf_data = "ambient_temp=$apcups{ambienttemperature};$temp_min_crit:$temp_max_crit;$temp_min_warn:$temp_max_warn;0;100 battery_runtime_remaining=$apcups{upsAdvBatteryRunTimeRemaining};10:9999;15:9999;; battery_capacity=$apcups{upsAdvBatteryCapacity};;50;100; ups_output_load=$apcups{upsAdvOutputLoad}%;100;80;; ";
+   $perf_data = "ambient_temp=$apcups{ambienttemperature};$temp_min_crit:$temp_max_crit;$temp_min_warn:$temp_max_warn;0;100 "ambient_humidity=$apcups{ambienthumidity};;;0;100 battery_runtime_remaining=$apcups{upsAdvBatteryRunTimeRemaining};10:9999;15:9999;; battery_capacity=$apcups{upsAdvBatteryCapacity};;50;100; ups_output_load=$apcups{upsAdvOutputLoad}%;100;80;; ";
    #
    #
    # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
