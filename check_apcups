@@ -9,8 +9,9 @@
 # 2016/02/16	njeffrey	Confirm $snmpwalk exists
 # 2018/04/08	njeffrey	Bug fixes in print_output subroutine, add --verbose parameter
 # 2018/07/07	njeffrey	Add nagios performance data to output
-# 2011/06/25	njeffrey	Remove dependency on perl module Net::SNMP Typo in print_output subroutine
-# 2011/06/25	njeffrey	Typo in print_output subroutine
+# 2021/06/25	njeffrey	Remove dependency on perl module Net::SNMP Typo in print_output subroutine
+# 2021/06/25	njeffrey	Typo in print_output subroutine
+# 2026/03/10	njeffrey	Typo in formatting of $perf_data
 
 
 # nagios shell script to query APC 9612 Network Management Card for temperature and humidity readings, as well as dry contacts
@@ -708,7 +709,7 @@ sub print_output {
    # 10:20	        < 10 or > 20, (outside the range of {10 .. 20})
    # @10:20	        ≥ 10 and ≤ 20, (inside the range of {10 .. 20})
    #
-   $perf_data = "ambient_temp=$apcups{ambienttemperature};$temp_min_crit:$temp_max_crit;$temp_min_warn:$temp_max_warn;0;100 battery_runtime_remaining:$apcups{upsAdvBatteryRunTimeRemaining};10:9999;15:9999;; battery_capacity:$apcups{upsAdvBatteryCapacity};;50;100; ups_output_load=$apcups{upsAdvOutputLoad}%;100;80;; ";
+   $perf_data = "ambient_temp=$apcups{ambienttemperature};$temp_min_crit:$temp_max_crit;$temp_min_warn:$temp_max_warn;0;100 battery_runtime_remaining=$apcups{upsAdvBatteryRunTimeRemaining};10:9999;15:9999;; battery_capacity=$apcups{upsAdvBatteryCapacity};;50;100; ups_output_load=$apcups{upsAdvOutputLoad}%;100;80;; ";
    #
    #
    # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
