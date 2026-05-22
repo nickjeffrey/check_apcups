@@ -32,5 +32,5 @@ You will also need a command definition similar to the following in commands.cfg
 
 # Sample Output
 ```
-APC UPS OK - UPS state: onLine. ambient temperature is 18 degrees celsius. Ambient humidity is 43%. Battery status is normal. UPS load is 12%. Runtime remaining is 98 minutes (100%).
+APC UPS OK - UPS state: onLine. ambient temperature is 18°C. Ambient humidity is 43%. Battery status is normal. UPS load is 12%. Runtime remaining is 98 minutes (100%).  ModelName:Smart-UPS 1400.  SerialNumber:123456 Location:Third floor wiring closet.
 ```
