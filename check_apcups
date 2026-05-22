@@ -297,8 +297,15 @@ sub get_options {
       $privproto = "AES";
    }
    #
-   # if --version=3, confirm that --authpass=??? and --privpass=??? were provided
+   # if --version=3, confirm that --user=??? --authpass=??? and --privpass=??? were provided
    if ( $version eq "3" ) {
+      if( defined( $opt_u ) ) {
+         $user = $opt_u;
+      } else {
+         $user = "unknown";
+         print "$CHECK_NAME UNKNOWN - when using SNMPv3, -u SomeUserName must be provided \n";
+         exit $UNKNOWN;                                           #exit script
+      }
       if( defined( $opt_A ) ) {
          $authpass = $opt_A;
       } else {
