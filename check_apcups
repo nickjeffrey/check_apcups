@@ -177,12 +177,13 @@ use Getopt::Long;                       #allow --long-switches to be used as par
 
 
 # declare variables
-my ($OK,$WARN,$CRITICAL,$UNKNOWN);
+my ($OK,$WARN,$CRITICAL,$UNKNOWN,$exit_code);
 my ($CHECK_NAME,$cmd,$snmpwalk,$snmpget);
 my ($host,$oid,$key,%apcups,$temp_min_warn,$temp_min_crit,$temp_max_warn,$temp_max_crit);
 my ($community,$version,$user,$authpass,$authproto,$privpass,$privproto,$level);
 my ($opt_h,$opt_v,$opt_w,$opt_c,$opt_C,$opt_H,$opt_V,$opt_l,$opt_A,$opt_a,$opt_X,$opt_x,$opt_u);
 my ($verbose,$output_details,$perf_data);
+my ($messages_critical,$messages_warn,$messages_unknown);
 $cmd = "";                                              #initialize variable
 $CHECK_NAME                 = "APC UPS";		#name of nagios check
 $verbose                    = "no";                    	#yes/no variable to increase output for debugging
@@ -858,11 +859,22 @@ sub print_output {
    #
    # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
    #
-   $output_details = "UPS state: $apcups{upsBasicOutputStatus}.  ambient temperature is $apcups{ambienttemperature} degrees celsius.  Ambient humidity is $apcups{ambienthumidity}.  Battery status is $apcups{upsBasicBatteryStatus}.  UPS load is $apcups{upsAdvOutputLoad}%.  Runtime remaining is $apcups{upsAdvBatteryRunTimeRemaining} minutes ($apcups{upsAdvBatteryCapacity}%).";
+   $output_details = "UPS state: $apcups{upsBasicOutputStatus}.";
+   if ( $apcups{ambienttemperature} eq "unknown" ) { $output_details = "$output_details  Ambient temperature is $apcups{ambienttemperature}."; }
+   if ( $apcups{ambienttemperature} ne "unknown" ) { $output_details = "$output_details  Ambient temperature is $apcups{ambienttemperature}C."; }
+   $output_details = "$output_details  Ambient humidity is $apcups{ambienthumidity}.";
+   $output_details = "$output_details  Battery status is $apcups{upsBasicBatteryStatus}.";
+   $output_details = "$output_details  UPS load is $apcups{upsAdvOutputLoad}%.";
+   $output_details = "$output_details  Runtime remaining is $apcups{upsAdvBatteryRunTimeRemaining} minutes ($apcups{upsAdvBatteryCapacity}%).";
+   #
+   # initialize some variables to hold assorted warnings
+   $messages_critical="";
+   $messages_warn="";
+   $messages_unknown="";
    #
    #
-   if ( $apcups{snmp} ne "ok" ) {
-      print "$CHECK_NAME UNKNOWN - No SNMP response.  $output_details \n";
+   if ( $apcups{snmp} ne "ok" ) {			#exit immediately if no SNMP response
+      print "$CHECK_NAME UNKNOWN - No SNMP response, confirm network connectivity and SNMP credentials. \n";
       exit $UNKNOWN; 
    }
    if ( $apcups{upsBasicOutputStatus} ne "onLine" ) {
@@ -870,103 +882,105 @@ sub print_output {
       exit $WARN; 
    }
    #
-   #only check for temperature readings if external temperature sensor exists
-   unless ( $apcups{ambienttemperature} eq "unknown") {   
-      if ( $apcups{ambienttemperature} < $temp_min_crit ) {
-         print "$CHECK_NAME CRITICAL - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
-         exit $CRITICAL; 
+   #only warn about temperature readings if external temperature sensor exists
+   if ( $apcups{ambienttemperature} ne "unknown") {   
+      if ( ($apcups{ambienttemperature} <= $temp_min_crit) && ($apcups{ambienttemperature} < $temp_min_warn) ) {
+         $messages_critical = "$messages_critical  Low ambient temperature alert, risk of frozen pipes, please investigate.";
       }
-      if ( $apcups{ambienttemperature} < $temp_min_warn ) {
-         print "$CHECK_NAME WARN - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
-         exit $WARN; 
+      if ( ($apcups{ambienttemperature} > $temp_min_crit) && ($apcups{ambienttemperature} <= $temp_min_warn) ) {
+         $messages_warn = "$messages_warn  Low ambient temperature alert, risk of frozen pipes, please investigate.";
       }
-      if ( $apcups{ambienttemperature} > $temp_max_crit ) {
-         print "$CHECK_NAME CRITICAL - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
-         exit $CRITICAL; 
+      if ( ($apcups{ambienttemperature} >= $temp_max_crit) && ($apcups{ambienttemperature} > $temp_max_warn) ) {
+         $messages_critical = "$messages_critical  High ambient temperature alert, the air conditioning may have failed.";
       }
-      if ( $apcups{ambienttemperature} > $temp_max_warn ) {
-         print "$CHECK_NAME WARN - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
-         exit $WARN; 
+      if ( ($apcups{ambienttemperature} < $temp_max_crit) && ($apcups{ambienttemperature} >= $temp_max_warn) ) {
+         $messages_warn = "$messages_warn  High ambient temperature alert, the air conditioning may have failed.";
       }
-   }					#end of unless block
+   }					#end of if block
    #
    if ( $apcups{upsAdvBatteryReplaceIndicator} eq "unknown" ) {
-      print "$CHECK_NAME UNKNOWN - Could not determine if UPS battery needs replacing or not.  Please investigate.  $output_details | $perf_data \n";
-      exit $UNKNOWN; 
+      $messages_unknown = "$messages_unknown  Could not determine if UPS battery needs replacing or not.  Please investigate check upsAdvBatteryReplaceIndicator value.";
    }
    if ( $apcups{upsAdvBatteryReplaceIndicator} eq "yes" ) {
-      print "$CHECK_NAME WARN - UPS battery needs replacing.  $output_details | $perf_data \n";
-      exit $WARN; 
+      $messages_warn = "$messages_warn  UPS battery needs replacing.";
    }
    #
    if ( $apcups{upsAdvBatteryCapacity} eq "unknown" ) {
-      print "$CHECK_NAME UNKNOWN - Could not determine UPS battery capacity.  Please investigate.  $output_details | $perf_data \n";
-      exit $UNKNOWN; 
-   }
-   if ( $apcups{upsAdvBatteryCapacity} > 100 ) {
-      print "$CHECK_NAME WARN - UPS battery is $apcups{upsAdvBatteryCapacity} %.  This value should never get above 100%.  $output_details | $perf_data \n";
-      exit $WARN; 
-   }
-   if ( $apcups{upsAdvBatteryCapacity} < 50 ) {
-      print "$CHECK_NAME WARN - UPS battery capacity is $apcups{upsAdvBatteryCapacity} %.  This value should never get below 50%.  $output_details | $perf_data \n";
-      exit $WARN; 
+      $messages_unknown = "$messages_unknown  Could not determine UPS battery capacity, please investigate.";
+   } elsif ( $apcups{upsAdvBatteryCapacity} > 100 ) {
+      $messages_warn = "$messages_warn  UPS battery is $apcups{upsAdvBatteryCapacity} %.  This value should never get above 100%, please investigate.";
+   } elsif ( $apcups{upsAdvBatteryCapacity} < 50 ) {
+      $messages_warn = "$messages_warn  UPS battery capacity is $apcups{upsAdvBatteryCapacity} %.  This value should never get below 50%, please investigate.";
    }
    #
    if ( $apcups{upsAdvOutputLoad} > 100 ) {
-      print "$CHECK_NAME UNKNOWN - UPS output load is $apcups{upsAdvOutputLoad} %.  This value should never get above 100%.  $output_details | $perf_data \n";
-      exit $UNKNOWN; 
+      $messages_unknown = "$messages_unknown  UPS output load is $apcups{upsAdvOutputLoad} %.  This value should never get above 100%.";
    }
-   if ( $apcups{upsAdvOutputLoad} > 80 ) {
-      print "$CHECK_NAME CRITICAL - UPS output load is $apcups{upsAdvOutputLoad} %.  This UPS is overloaded.  Unplug a few devices.  $output_details | $perf_data \n";
-      exit $CRITICAL; 
+   if ( ($apcups{upsAdvOutputLoad} > 80) && ($apcups{upsAdvOutputLoad} <= 100) ) {
+      $messages_critical = "$messages_critical  UPS output load is $apcups{upsAdvOutputLoad} %, this UPS is overloaded, unplug a few devices.";
    }
-   if ( $apcups{upsAdvOutputLoad} > 70 ) {
-      print "$CHECK_NAME WARN - UPS output load is $apcups{upsAdvOutputLoad} %.  This UPS is overloaded.  Unplug a few devices.  $output_details | $perf_data \n";
-      exit $WARN; 
+   if ( ($apcups{upsAdvOutputLoad} > 70) && ($apcups{upsAdvOutputLoad} <= 80) ) {
+      $messages_warn = "$messages_warn  UPS output load is $apcups{upsAdvOutputLoad} %, this UPS is overloaded, please unplug a few devices.";
    }
    # 
    if ( $apcups{upsAdvBatteryRunTimeRemaining} < 10 ) {
-      print "$CHECK_NAME CRITICAL - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details | $perf_data \n";
-      exit $CRITICAL; 
+      $messages_critical = "$messages_critical  Low UPS battery runtime remaining.  Either add battery packs to increase the runtime or decrease the load on the UPS.";
    }
-   if ( $apcups{upsAdvBatteryRunTimeRemaining} < 15 ) {
-      print "$CHECK_NAME WARN - low UPS battery runtime remaining.  Either increase the battery runtime or decrease the load on the UPS.  $output_details | $perf_data\n";
-      exit $WARN; 
+   if ( ($apcups{upsAdvBatteryRunTimeRemaining} < 15) && ($apcups{upsAdvBatteryRunTimeRemaining} >= 10) ) {
+      $messages_warn = "$messages_warn  Low UPS battery runtime remaining.  Either add battery packs to increase the runtime or decrease the load on the UPS.";
    }
    #
    if ( $apcups{upsAdvBatteryCapacity} < 50 ) {
-      print "$CHECK_NAME CRITICAL - very low UPS battery capacity remaining.  $output_details | $perf_data \n";
-      exit $CRITICAL; 
+      $messages_critical = "$messages_critical  Very low UPS battery capacity remaining, shutdown workloads immediately.";
    }
-   if ( $apcups{upsAdvBatteryCapacity} < 70 ) {
-      print "$CHECK_NAME WARN - low UPS battery capacity remaining.  $output_details | $perf_data  \n";
-      exit $WARN; 
+   if ( ($apcups{upsAdvBatteryCapacity} < 70) && ($apcups{upsAdvBatteryCapacity} >= 50) ) {
+      $messages_warn = "$messages_warn  Low UPS battery capacity remaining, please shutdown workloads.";
    }
    #
    if ( $apcups{upsBasicBatteryStatus} eq "unknown" ) {
-      print "$CHECK_NAME UNKNOWN - Could not determine UPS battery status.  Please investigate.  $output_details | $perf_data  \n";
-      exit $UNKNOWN; 
+      $messages_unknown = "$messages_unknown  Could not determine UPS battery status, please investigate.";
    }
    if ( $apcups{upsBasicBatteryStatus} eq "batteryLow" ) {
-      print "$CHECK_NAME UNKNOWN - Battery status is low.  Please investigate.  $output_details | $perf_data \n";
-      exit $UNKNOWN; 
+      $messages_warn = "$messages_warn  Battery status is low, please investigate.";
    }
    if ( $apcups{iemStatusContactStatus_1} eq "fault" ) {
-      print "$CHECK_NAME WARN - Dry contact in error state.  $apcups{iemStatusContactName_1}=$apcups{iemStatusContactStatus_1} - please investigate.   $output_details | $perf_data \n";
-      exit $WARN; 
+      $messages_warn = "$messages_warn  Dry contact in error state.  $apcups{iemStatusContactName_1}=$apcups{iemStatusContactStatus_1}, please investigate.";
    }
    if ( $apcups{iemStatusContactStatus_2} eq "fault" ) {
-      print "$CHECK_NAME WARN - Dry contact in error state.  $apcups{iemStatusContactName_2}=$apcups{iemStatusContactStatus_2} - please investigate.   $output_details | $perf_data \n";
-      exit $WARN; 
+      $messages_warn = "$messages_warn  Dry contact in error state.  $apcups{iemStatusContactName_2}=$apcups{iemStatusContactStatus_2}, please investigate.";
    }
    #
-   # This message gets sent if everything is ok
-   if ( $apcups{ambienttemperature} >= $temp_min_warn ) {
-      if ( $apcups{ambienttemperature} <= $temp_max_warn ) {
-         print "$CHECK_NAME OK - $output_details | $perf_data \n";
-         exit $OK;
-      }
+   #
+   # At this point, we have gathered all the details, and we have text in one or more of these variables:
+   #   $output_details, $perf_data, $messages_critical, $messages_warn, $messages_unknown
+   # Consolidate all the variables into a single string.
+   $output_details = "$messages_critical $messages_warn $messages_unknown $output_details";
+   #
+   # Figure out if the exit code should be OK, WARN, CRITICAL, UNKNOWN
+   $exit_code = $OK       if ( $output_details    =~ /[a-zA-Z]/ );
+   $exit_code = $UNKNOWN  if ( $messages_unknown  =~ /[a-zA-Z]/ );
+   $exit_code = $WARN     if ( $messages_warn     =~ /[a-zA-Z]/ );
+   $exit_code = $CRITICAL if ( $messages_critical =~ /[a-zA-Z]/ );
+   #
+   # Adjust the output message based on the $exit_code in the previous section
+   #
+   if ( "$exit_code" eq "$OK" ) {
+      print "$CHECK_NAME OK - $output_details | $perf_data \n";
+      exit $OK;
    }
+   if ( "$exit_code" eq "$WARN" ) {
+      print "$CHECK_NAME WARN - $output_details | $perf_data \n";
+      exit $WARN;
+   }
+   if ( "$exit_code" eq "$CRITICAL" ) {
+      print "$CHECK_NAME CRITICAL - $output_details | $perf_data \n";
+      exit $CRITICAL;
+   }
+   if ( "$exit_code" eq "$UNKNOWN" ) {
+      print "$CHECK_NAME UNKNOWN - $output_details | $perf_data \n";
+      exit $UNKNOWN;
+   }
+   #
    #
    # The script should never get this far
    print "$CHECK_NAME UNKNOWN - Could not determine UPS status.  Please investigate. $output_details | $perf_data \n";
