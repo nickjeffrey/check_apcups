@@ -415,7 +415,8 @@ sub check_ups_model {
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
       s/\"//g;                                                          #get rid of quotation marks
-      if ( /$oid ([a-zA-Z0-9 _\-]+)/ ) {         					#1=unknown
+      s/\  / /g;                                                        #collapse multiple spaces into a single space
+      if ( /$oid ([a-zA-Z0-9 _\-]+)/ ) {         			#parse out the model name
          $apcups{upsBasicIdentModel} = $1;            		#assign value to hash
          print "   UPS model $apcups{upsBasicIdentModel} \n" if ($verbose eq "yes");
       }
