@@ -163,7 +163,8 @@
 # .iso.org.dod.internet.private.enterprises.apc.products.hardware.environmentalMonitor.integrated.iemStatus.iemStatusContactsTable.iemStatusContactsEntry.iemStatusContactStatus.2 .1.3.6.1.4.1.318.1.1.10.2.3.4.1.3.2
 
 
-
+# Model Name    upsBasicIdentModel      .1.3.6.1.4.1.318.1.1.1.1.1.1.0
+# Serial Number upsAdvIdentSerialNumber .1.3.6.1.4.1.318.1.1.1.1.2.3.0
 
 
 
@@ -396,6 +397,55 @@ sub check_snmp {
    }							#end of while loop
    close IN;						#close filehandle
 }                                                       #end of subroutine
+
+
+
+sub check_ups_model {
+   #
+   print "running check_ups_model subroutine \n" if ($verbose eq "yes");
+   #
+   $apcups{upsBasicIdentModel} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.1.1.1.0";                             
+   if ( $version eq "1" ) { $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid"; }
+   if ( $version eq "3" ) { $cmd = "$snmpwalk -Onq -v 3 -u $user -A $authpass -a $authproto -X $privpass -x $privproto -l $level $host $oid"; }
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([a-zA-Z0-9 _\-]+)/ ) {         					#1=unknown
+         $apcups{upsBasicIdentModel} = $1;            		#assign value to hash
+         print "   UPS model $apcups{upsBasicIdentModel} \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+}									#end of subroutine 
+
+
+
+sub check_ups_serial {
+   #
+   print "running check_ups_serial subroutine \n" if ($verbose eq "yes");
+   #
+   $apcups{upsAdvIdentSerialNumber} = "unknown";				#initialize variable
+   return unless ($apcups{snmp} eq "ok");				#break out of subroutine if SNMP not working
+   #
+   $oid = ".1.3.6.1.4.1.318.1.1.1.1.2.3.0";                             
+   if ( $version eq "1" ) { $cmd = "$snmpwalk -Onq -v 1 -c $community $host $oid"; }
+   if ( $version eq "3" ) { $cmd = "$snmpwalk -Onq -v 3 -u $user -A $authpass -a $authproto -X $privpass -x $privproto -l $level $host $oid"; }
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   #
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      s/\"//g;                                                          #get rid of quotation marks
+      if ( /$oid ([a-zA-Z0-9 _\-]+)/ ) {         					#1=unknown
+         $apcups{upsAdvIdentSerialNumber} = $1;            		#assign value to hash
+         print "   UPS serial $apcups{upsAdvIdentSerialNumber} \n" if ($verbose eq "yes");
+      }
+   }                                                                    #end of while loop
+}									#end of subroutine 
+
 
 
 sub check_ups_state {
@@ -866,6 +916,8 @@ sub print_output {
    $output_details = "$output_details  Battery status is $apcups{upsBasicBatteryStatus}.";
    $output_details = "$output_details  UPS load is $apcups{upsAdvOutputLoad}%.";
    $output_details = "$output_details  Runtime remaining is $apcups{upsAdvBatteryRunTimeRemaining} minutes ($apcups{upsAdvBatteryCapacity}%).";
+   $output_details = "$output_details  ModelName:$apcups{upsBasicIdentModel}.";
+   $output_details = "$output_details  SerialNumber:$apcups{upsAdvIdentSerialNumber}.";
    #
    # initialize some variables to hold assorted warnings
    $messages_critical="";
@@ -995,6 +1047,8 @@ sub print_output {
 get_options;
 sanity_checks;
 check_snmp;
+check_ups_model;
+check_ups_serial;
 check_ups_state;
 get_temperature;
 get_humidity;
