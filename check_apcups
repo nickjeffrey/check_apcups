@@ -495,51 +495,51 @@ sub check_ups_state {
       s/\"//g;                                                          #get rid of quotation marks
       if ( /$oid 1/ ) {         					#1=unknown
          $apcups{upsBasicOutputStatus} = "unknown";            		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 2/ ) {         					#2=onLine
          $apcups{upsBasicOutputStatus} = "onLine";            		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 3/ ) {         					#3=onBattery
          $apcups{upsBasicOutputStatus} = "onBattery";          		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 4/ ) {         					#4=onSmartBoost
          $apcups{upsBasicOutputStatus} = "onSmartBoost";       		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 5/ ) {         					#5=timeSleeping
          $apcups{upsBasicOutputStatus} = "timedSleeping";      		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 6/ ) {         					#6=softwareBypass
          $apcups{upsBasicOutputStatus} = "softwareBypass";     		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 7/ ) {         					#7=off
          $apcups{upsBasicOutputStatus} = "off";          		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 8/ ) {         					#8=rebooting
          $apcups{upsBasicOutputStatus} = "rebooting";       		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 9/ ) {         					#9=switchedBypass
          $apcups{upsBasicOutputStatus} = "switchedBypass";     		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 10/ ) {         					#10=hardwareFailureBypass
          $apcups{upsBasicOutputStatus} = "hardwareFailureBypass";	#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 11/ ) {         					#11=sleepingUntilPowerReturn
          $apcups{upsBasicOutputStatus} = "sleepingUntilPowerReturn"; 	#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
       if ( /$oid 12/ ) {         					#12=onSmartTrim
          $apcups{upsBasicOutputStatus} = "onSmartTrim";       		#assign value to hash
-         print "   UPS state: $apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
+         print "   UPS state:$apcups{upsBasicOutputStatus} \n" if ($verbose eq "yes");
       }
    }                                                                    #end of while loop
 }									#end of subroutine 
@@ -936,9 +936,9 @@ sub print_output {
    #
    # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
    #
-   $output_details = "UPS state: $apcups{upsBasicOutputStatus}.";
+   $output_details = "UPS state is $apcups{upsBasicOutputStatus}.";
    if ( $apcups{ambienttemperature} eq "unknown" ) { $output_details = "$output_details  Ambient temperature is $apcups{ambienttemperature}."; }
-   if ( $apcups{ambienttemperature} ne "unknown" ) { $output_details = "$output_details  Ambient temperature is $apcups{ambienttemperature}C."; }
+   if ( $apcups{ambienttemperature} ne "unknown" ) { $output_details = "$output_details  Ambient temperature is $apcups{ambienttemperature}°C."; }
    $output_details = "$output_details  Ambient humidity is $apcups{ambienthumidity}.";
    $output_details = "$output_details  Battery status is $apcups{upsBasicBatteryStatus}.";
    $output_details = "$output_details  UPS load is $apcups{upsAdvOutputLoad}%.";
