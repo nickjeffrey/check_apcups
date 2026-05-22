@@ -487,9 +487,13 @@ sub get_temperature {
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
       s/\"//g;                                                          #get rid of quotation marks
-      if ( /$oid ([0-9]+)/ ) {         #find the ambient temperature from the temperature probe
-         $apcups{ambienttemperature}  = $1;                                         #assign value to hash
+      if ( /$oid ([0-9]+)/ ) {         					#find the ambient temperature from the external sensor
+         $apcups{ambienttemperature}  = $1;                             #assign value to hash
          print "   found ambient temperature $1 degrees celsius \n" if ($verbose eq "yes");
+      }
+      if ( /$oid No Such Object/ ) {         				#find the ambient temperature from the external sensor
+         $apcups{ambienttemperature}  = "unknown";                      #assign value to hash
+         print "   Setting ambient temperature to unknown - could not find supported environmental sensor \n" if ($verbose eq "yes");
       }
    }                                                                    #end of while loop
    close IN;                                                            #close filehandle
@@ -517,14 +521,18 @@ sub get_humidity {
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
       s/\"//g;                                                          #get rid of quotation marks
-      if ( /$oid ([0-9\-]+)/ ) {         #find the ambient temperature from the temperature probe
+      if ( /$oid ([0-9\-]+)/ ) {         				#find the ambient humidity from the external sensor
          $apcups{ambienthumidity}  = $1;                                #assign value to hash
          print "   found ambient humidity $apcups{ambienthumidity} % \n" if ($verbose eq "yes");
       }
       if ( $apcups{ambienthumidity} eq "-1" ) {
          $apcups{ambienthumidity} = "unknown"; 				#assign more human readable value
-         print "   Setting ambient humidity to unknown - could not find supported environmental probe \n" if ($verbose eq "yes");
+         print "   Setting ambient humidity to unknown - could not find supported environmental sensor \n" if ($verbose eq "yes");
       }									#end of if block
+      if ( /$oid No Such Object/ ) {         				#find the ambient temperature from the external sensor
+         $apcups{ambienthumidity}  = "unknown";                         #assign value to hash
+         print "   Setting ambient humidity to unknown - could not find supported environmental sensor \n" if ($verbose eq "yes");
+      }
    }                                                                    #end of while loop
    close IN;                                                            #close filehandle
 }                                                                       #end of subroutine
@@ -862,22 +870,25 @@ sub print_output {
       exit $WARN; 
    }
    #
-   if ( $apcups{ambienttemperature} < $temp_min_crit ) {
-      print "$CHECK_NAME CRITICAL - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
-      exit $CRITICAL; 
-   }
-   if ( $apcups{ambienttemperature} < $temp_min_warn ) {
-      print "$CHECK_NAME WARN - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
-      exit $WARN; 
-   }
-   if ( $apcups{ambienttemperature} > $temp_max_crit ) {
-      print "$CHECK_NAME CRITICAL - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
-      exit $CRITICAL; 
-   }
-   if ( $apcups{ambienttemperature} > $temp_max_warn ) {
-      print "$CHECK_NAME WARN - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
-      exit $WARN; 
-   }
+   #only check for temperature readings if external temperature sensor exists
+   unless ( $apcups{ambienttemperature} eq "unknown") {   
+      if ( $apcups{ambienttemperature} < $temp_min_crit ) {
+         print "$CHECK_NAME CRITICAL - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
+         exit $CRITICAL; 
+      }
+      if ( $apcups{ambienttemperature} < $temp_min_warn ) {
+         print "$CHECK_NAME WARN - Low temperature alert. Find out why it is so cold. $output_details | $perf_data \n";
+         exit $WARN; 
+      }
+      if ( $apcups{ambienttemperature} > $temp_max_crit ) {
+         print "$CHECK_NAME CRITICAL - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
+         exit $CRITICAL; 
+      }
+      if ( $apcups{ambienttemperature} > $temp_max_warn ) {
+         print "$CHECK_NAME WARN - High temperature alert. The air conditioning may have failed.  $output_details | $perf_data \n";
+         exit $WARN; 
+      }
+   }					#end of unless block
    #
    if ( $apcups{upsAdvBatteryReplaceIndicator} eq "unknown" ) {
       print "$CHECK_NAME UNKNOWN - Could not determine if UPS battery needs replacing or not.  Please investigate.  $output_details | $perf_data \n";
