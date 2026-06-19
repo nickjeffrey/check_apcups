@@ -14,7 +14,7 @@
 # 2026/03/10	njeffrey	Typo in formatting of $perf_data
 # 2026/03/10	njeffrey	Add check_snmp subroutine
 # 2026/05/22	njeffrey	Add support for SNMPv3
-# 2026/06/19	njeffrey	Add OID values for Network Management Card 3 (NMC3)
+# 2026/06/19	njeffrey	Add OID values for AP9641 Network Management Card 3 (NMC3)
 
 
 # nagios shell script to query APC UPS Network Management Card for temperature and humidity readings, as well as dry contacts
@@ -70,13 +70,13 @@
 #    Temperature #2 .1.3.6.1.4.1.318.1.1.10.4.2.3.1.5.0.2 
 #    Humidity    #1 .1.3.6.1.4.1.318.1.1.10.4.2.3.1.6.0.1 
 #
-# APC9312 series
+# APC9312 series  
 #    Temperature #1  .1.3.6.1.4.1.318.1.1.2.1.1.0 
 #    Humidity    #1  .1.3.6.1.4.1.318.1.1.2.1.2.0 
 #    Temperature #2  .1.3.6.1.4.1.318.1.1.2.1.3.0 
 #    Humidity    #2  .1.3.6.1.4.1.318.1.1.2.1.4.0
 # 
-# NMC3 series
+# AP9641 NMC3 series (these values are in tenths of degrees C, so divide by 10)
 #    Temperature #1  .1.3.6.1.4.1.318.1.1.1.2.3.10.4.1.4.1.1 
 #    Humidity    #1  .1.3.6.1.4.1.318.1.1.1.2.3.10.4.1.4.2.1 
 #    Temperature #2  .1.3.6.1.4.1.318.1.1.1.2.3.10.4.1.4.3.1
@@ -602,7 +602,9 @@ sub get_temperature {
          s/\"//g;                                                          #get rid of quotation marks
          if ( /$oid ([0-9]+)/ ) {         					#find the ambient temperature from the external sensor
             $apcups{ambienttemperature}  = $1;                             #assign value to hash
-            print "   found ambient temperature $1 degrees celsius \n" if ($verbose eq "yes");
+            $apcups{ambienttemperature}  = $apcups{ambienttemperature/10;  #OID is in tenths of degrees, so divide by 10
+            $apcups{ambienttemperature}  = sprintf("%.1f",$apcups{ambienttemperature);  #truncate to 1 decimal place
+            print "   found ambient temperature $apcups{ambienttemperature} degrees celsius \n" if ($verbose eq "yes");
          }
          if ( /$oid No Such Object/ ) {         				#find the ambient temperature from the external sensor
             $apcups{ambienttemperature}  = "unknown";                      #assign value to hash
