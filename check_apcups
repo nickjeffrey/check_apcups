@@ -602,8 +602,8 @@ sub get_temperature {
          s/\"//g;                                                          #get rid of quotation marks
          if ( /$oid ([0-9]+)/ ) {         					#find the ambient temperature from the external sensor
             $apcups{ambienttemperature}  = $1;                             #assign value to hash
-            $apcups{ambienttemperature}  = $apcups{ambienttemperature/10;  #OID is in tenths of degrees, so divide by 10
-            $apcups{ambienttemperature}  = sprintf("%.1f",$apcups{ambienttemperature);  #truncate to 1 decimal place
+            $apcups{ambienttemperature}  = $apcups{ambienttemperature}/10; #OID is in tenths of degrees, so divide by 10
+            $apcups{ambienttemperature}  = sprintf("%.1f",$apcups{ambienttemperature});  #truncate to 1 decimal place
             print "   found ambient temperature $apcups{ambienttemperature} degrees celsius \n" if ($verbose eq "yes");
          }
          if ( /$oid No Such Object/ ) {         				#find the ambient temperature from the external sensor
